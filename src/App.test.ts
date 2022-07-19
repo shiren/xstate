@@ -1,4 +1,4 @@
-import { createMachine, send, interpret, StateValue, ActorRef } from 'xstate';
+import { createMachine, send, interpret, StateValue, assign, sendParent } from 'xstate';
 import { choose, escalate, log, raise, respond, pure } from 'xstate/lib/actions';
 import { waitFor } from 'xstate/lib/waitFor';
 
@@ -362,7 +362,6 @@ describe('XState Study', () => {
       const sendToAllSampleActors = pure((context, event) => {
         // @ts-ignore
         return context.sampleActors.map((sampleActor) => {
-          console.log(event);
           return send('SOME_EVENT', { to: sampleActor });
         });
       });
@@ -414,15 +413,282 @@ describe('XState Study', () => {
       // External transition (exit + transition actions + entry)
       const stateA = counterMachine.transition('counting', { type: 'DEC' });
 
-      expect(stateA.actions).toEqual(['exitCounting', 'decrement', 'enterCounting']);
+      expect(stateA.actions.map((i) => i.type)).toEqual([
+        'exitCounting',
+        'decrement',
+        'enterCounting',
+      ]);
 
       // Internal transition (transition actions)
       const stateB = counterMachine.transition('counting', { type: 'DO_NOTHING' });
-      expect(stateB.actions).toEqual(['logNothing']);
+      expect(stateB.actions.map((i) => i.type)).toEqual(['logNothing']);
 
       // internal
       const stateC = counterMachine.transition('counting', { type: 'INC' });
-      expect(stateC.actions).toEqual(['increment']);
+      expect(stateC.actions.map((i) => i.type)).toEqual(['increment']);
+    });
+  });
+  describe('invoking service', () => {
+    // 하나의 머신에서 어플리케이션 전체를 커버하는 것은 너무 복잡해질 수 있다.
+    // 여러개의 머신으로 분할하고 서로 통신하게 만드는 것이 좋다.
+    // 일종의 Actor model이다. 각 모델 인스턴스는 액터라고 보면된다.
+    // 이벤트를 전달하거나 받을 수 있다.
+    // 부모 머신이 자식 머신을 인보크하는 형태로 만들어진다.
+    // 머신 뿐만 아니라 Promise, Callback, Observable도 인보크할 수 있다. 즉 머신으로 사용할 수 있다.
+
+    it('invoking promise', async () => {
+      type Context = { userId: number; user?: string; error?: string };
+
+      // 프로미스에서 reject 되거나 Error가 throw되면 onError 이벤트 발생한다.
+      const fetchUser = ({ userId }: Context) =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve('shiren');
+          }, 0);
+        });
+
+      const userMachine = createMachine<Context>({
+        id: 'user',
+        initial: 'idle',
+        context: {
+          userId: 42,
+          user: undefined,
+          error: undefined,
+        },
+        states: {
+          idle: {
+            on: {
+              FETCH: { target: 'loading' },
+            },
+          },
+          loading: {
+            invoke: {
+              id: 'getUser',
+              src: (context, event) => fetchUser(context),
+              onDone: {
+                target: 'success',
+                actions: [assign({ user: (context, event) => event.data })],
+              },
+              onError: {
+                target: 'failure',
+                actions: [assign({ error: (context, event) => event.data })],
+              },
+            },
+          },
+          success: { type: 'final' },
+          failure: {
+            on: {
+              RETRY: { target: 'loading' },
+            },
+          },
+        },
+      });
+
+      userMachine.transition('idle', { type: 'FETCH' });
+
+      const service = interpret(userMachine).start();
+
+      service.send('FETCH');
+
+      await waitFor(service, (state) => state.matches('success'));
+      expect(service.state.context.user).toEqual('shiren');
+    });
+    it('invoking callback', (done) => {
+      // callback 핸들러로 서비스를 등록할 수 있다.
+
+      const service = createMachine({
+        id: 'pinger',
+        initial: 'active',
+        states: {
+          active: {
+            invoke: {
+              id: 'ponger',
+              // 콜백 형태의 자식 머신
+              // callback은 메시지를 전달할 때 사용
+              // onReceive는 메시지를 받을때 사용
+              // 함수를 리턴하면 리액트의 이팩트처럼 리소스를 제거하거나 정리하는 함수로 실행된다.
+              src: (context, event) => (callback, onReceive) => {
+                onReceive((e) => {
+                  if (e.type === 'PING') {
+                    callback('PONG');
+                  }
+                });
+              },
+            },
+            entry: send({ type: 'PING' }, { to: 'ponger' }),
+            on: {
+              PONG: { target: 'done' },
+            },
+          },
+          done: {
+            type: 'final',
+          },
+        },
+      });
+
+      const events: string[] = [];
+
+      interpret(service)
+        .onEvent((e) => {
+          events.push(e.type);
+        })
+        .onDone(() => {
+          // ping 은 액터에게 보내는 것이니까 쌓이지 않는다.
+          expect(events).toEqual(['xstate.init', 'PONG']);
+          done();
+        })
+        .start();
+    });
+    it('invoking Observable', () => {
+      // Observable으로 액터로 사용할 수 있다.
+      // 대부분의 구현체를 사용할 수 있는 듯 함. 대표적으로 rxjs. 일단 생략 한다.
+    });
+    it('invoking machine', async () => {
+      // 당연히 일반 머신도 액터로 사용할 수 있다.
+      const minuteMachine = createMachine({
+        id: 'timer',
+        initial: 'active',
+        states: {
+          active: {
+            after: {
+              1: { target: 'finished' },
+            },
+          },
+          finished: { type: 'final' },
+        },
+      });
+
+      const parentMachine = createMachine({
+        id: 'parent',
+        initial: 'pending',
+        states: {
+          pending: {
+            invoke: {
+              src: minuteMachine,
+              onDone: 'timesUp',
+            },
+          },
+          timesUp: {},
+        },
+      });
+
+      const service = interpret(parentMachine).start();
+
+      await waitFor(service, (state) => state.matches('timesUp'));
+
+      expect(service.state.value).toEqual('timesUp');
+    });
+
+    it('Invoke machine with context', (done) => {
+      // 자식 머신은 data 프로퍼티로 context의 내용을 전달 받을 수 있다. 일종의 인자, 파라메터같은것이다.
+      // 자식 머신은 final 노드에서 data 프롭으로 부모에게 데이터를 전달할 수 있다.
+      // 자식 머신에게 인풋을 주고 아웃풋을 받는 방법.
+
+      const minuteMachine = createMachine<{ duration: number; text: string }>({
+        id: 'timer',
+        initial: 'active',
+        context: {
+          duration: 1000,
+          text: 'my value',
+        },
+        states: {
+          active: {
+            entry: (context) => {
+              // 부모에게서 컨텍스트를 전달받았다.
+              expect(context.duration).toEqual(2000);
+              expect(context.text).toEqual('parent value');
+              done();
+            },
+            after: {
+              1000: { target: 'finished' },
+            },
+          },
+          finished: { type: 'final', data: { childData: () => 'finish' } },
+        },
+      });
+
+      const parentMachine = createMachine<{ name: string; childData?: string }>({
+        id: 'parent',
+        initial: 'pending',
+        context: {
+          name: 'parent value',
+        },
+        states: {
+          pending: {
+            invoke: {
+              id: 'timer',
+              src: minuteMachine,
+              // 자식의 컨텍스트로 전달
+              data: {
+                duration: 2000,
+                text: 'parent value',
+              },
+              onDone: {
+                target: 'timesUp',
+                actions: [
+                  // 자식에게서 데이터를 전달 받음
+                  assign({ childData: (_, event) => event.data.childData }),
+                  (context) => {
+                    expect(context.childData).toEqual('finish');
+                    done();
+                  },
+                ],
+              },
+            },
+          },
+          timesUp: {
+            type: 'final',
+          },
+        },
+      });
+
+      interpret(parentMachine).start();
+    });
+    it('invoke machine, sending events', (done) => {
+      // 수시로 부모와 자식이 이벤트를 주고 받을 수 있다.
+      const pongMachine = createMachine({
+        id: 'pong',
+        initial: 'active',
+        states: {
+          active: {
+            on: {
+              PING: {
+                // 부모에게 이벤트 전달은 sendParent로
+                actions: sendParent('PONG', {
+                  delay: 1,
+                }),
+              },
+            },
+          },
+        },
+      });
+
+      // Parent machine
+      const pingMachine = createMachine({
+        id: 'ping',
+        initial: 'active',
+        states: {
+          active: {
+            invoke: {
+              id: 'pong',
+              src: pongMachine,
+            },
+            // 자식 머신 pong에게 이벤트 전달은 send로
+            entry: send({ type: 'PING' }, { to: 'pong' }),
+            on: {
+              PONG: {
+                actions: [
+                  () => {
+                    done();
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+
+      interpret(pingMachine).start();
     });
   });
 });
