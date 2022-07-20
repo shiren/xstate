@@ -435,6 +435,7 @@ describe('XState Study', () => {
     // 이벤트를 전달하거나 받을 수 있다.
     // 부모 머신이 자식 머신을 인보크하는 형태로 만들어진다.
     // 머신 뿐만 아니라 Promise, Callback, Observable도 인보크할 수 있다. 즉 머신으로 사용할 수 있다.
+    // 빠른 참조: https://xstate.js.org/docs/guides/communication.html#quick-reference
 
     it('invoking promise', async () => {
       type Context = { userId: number; user?: string; error?: string };
@@ -462,6 +463,7 @@ describe('XState Study', () => {
             },
           },
           loading: {
+            // 배열로 여러개 선언하는 것도 가능하다.
             invoke: {
               id: 'getUser',
               src: (context, event) => fetchUser(context),
@@ -654,6 +656,7 @@ describe('XState Study', () => {
             on: {
               PING: {
                 // 부모에게 이벤트 전달은 sendParent로
+                // respond를 써도 된다.
                 actions: sendParent('PONG', {
                   delay: 1,
                 }),
@@ -689,6 +692,90 @@ describe('XState Study', () => {
       });
 
       interpret(pingMachine).start();
+    });
+    it.skip('서비스를 미리 등록해두고 사용할 수 있다.', () => {
+      const fetchUser = (id: string) => Promise.resolve({ id, name: 'John' });
+      const userMachine = createMachine(
+        {
+          id: 'user',
+          // ...
+          states: {
+            // ...
+            loading: {
+              invoke: {
+                src: 'getUser',
+                // ...
+              },
+            },
+            // ...
+          },
+        },
+        {
+          services: {
+            getUser: () => fetchUser('dd'),
+          },
+        }
+      );
+    });
+    it.skip('서비스를 미리 등록해두고 사용할 수 있다2, 메타데이터(파라메터?) 전달', () => {
+      const fetchUser = (id: string) => Promise.resolve({ id, name: 'John' });
+      const userMachine = createMachine(
+        {
+          id: 'user',
+          // ...
+          states: {
+            // ...
+            loading: {
+              invoke: {
+                src: {
+                  type: 'getUser',
+                  endpoint: 'example.com',
+                },
+              },
+            },
+            // ...
+          },
+        },
+        {
+          services: {
+            getUser: (c, e, { src }) => fetchUser(`${src.endpoint}dd`),
+          },
+        }
+      );
+    });
+    it.skip('.withCOnfig() 으로 특정 서비스를 모킹할 수 있다.', () => {
+      const mockFetchUser = async (userId: any) => {
+        return { name: 'Test', location: 'Anywhere' };
+      };
+
+      // @ts-ignore
+      const testUserMachine = userMachine.withConfig({
+        services: {
+          getUser: () => mockFetchUser('dd'),
+        },
+      });
+
+      interpret(testUserMachine)
+        .onTransition((state) => {
+          if (state.matches('success')) {
+            // eslint-disable-next-line
+            expect(state?.context?.user).toEqual({
+              name: 'Test',
+              location: 'Anywhere',
+            });
+          }
+        })
+        .start();
+    });
+    it.skip('서비스에 대한 참조', () => {
+      /* eslint-disable */
+      const service = interpret(machine)
+        .onTransition((state) => {
+          state.children.notifier; // notifier 는 id
+          state.children.logger; // service from createLogger()
+        })
+        .start();
+      /* eslint-enable */
     });
   });
 });
