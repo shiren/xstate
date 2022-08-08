@@ -275,10 +275,11 @@ describe('XState Study', () => {
       });
     });
 
-    it.skip('null events, always - 1', () => {
+    it('null events, always - 1', () => {
       // 널이벤트는 스테이트에 진입되면 즉시 실행된다.
       // https://xstate.js.org/docs/guides/events.html#null-events
-      // cond 프로퍼티를 사용해서 조건에 따른 분기를 할 수 있는데 always가 동작하지 않는다.
+      // 향후 버전에서는 ''대신 'always'를 사용한다.
+      // cond 프로퍼티를 사용해서 조건에 따른 즉시 분기로 활용할 수 있다.
       //'': [
       //    { target: 'adult', cond: isAdult },
       //     { target: 'child', cond: isMinor }
@@ -293,7 +294,7 @@ describe('XState Study', () => {
             on: { CLICK: 'two' },
           },
           two: {
-            on: { always: 'three' },
+            on: { '': 'three' },
           },
           three: {
             type: 'final',
@@ -303,8 +304,6 @@ describe('XState Study', () => {
 
       const { initialState } = skipMachine;
       const nextState = skipMachine.transition(initialState, 'CLICK');
-
-      console.log(nextState.value);
 
       expect(nextState.value).toEqual('three');
     });
@@ -327,23 +326,26 @@ describe('XState Study', () => {
       // - 현재 스테이트가 해당 이벤트가 정의되어있어야하고
       // - transition guard가 충족하고
       // - 중첩된 노드의 경우 부모의 이벤트보다 현재 노드의 이벤트가 우선된다.(이말은 이벤트가 버블링된다는 의미)
-      //
+      //   버블링을 취소하려면 취소하고 싶은 스테이트에 해당 이벤트명에 undefined를 지정한다.
       // transition에 전달하는 이벤트 객체의 type과 매치되는 값을 이벤트 디스크립터라고한다.
       // 그래서 DOM이벤트 객체를 그대로 사용할 수 있다. m.transition(.., domEvent)
     });
 
     it('internal transition', () => {
+      const exitfn = jest.fn();
+      const stateExitfn = jest.fn();
       const fn = jest.fn();
 
       const wordMachine = createMachine({
         id: 'word',
         initial: 'left',
         states: {
-          left: {},
+          left: { exit: stateExitfn },
           right: {},
           center: {},
           justify: {}
         },
+        exit: exitfn,
         on: {
           // internal transitions
           LEFT_CLICK: '.left',
@@ -362,11 +364,41 @@ describe('XState Study', () => {
       m.send('RIGHT_CLICK');
 
       expect(m.state.value).toEqual('right');
+      expect(exitfn).not.toHaveBeenCalled(); // 머신 래밸의 exit 액션이 실행되지 않는다.
+      expect(stateExitfn).toHaveBeenCalled(); // 상태 노드의 exit 액션은 실행된다.
       expect(fn).toHaveBeenCalled(); // 전이될때의 이벤트는 실행됨
     });
 
     it('external transition', () => {
-      // https://xstate.js.org/docs/guides/transitions.html#external-transitions
+      // 외부 전이는 상태 노드를 빠져나가고 정의된 전이에 따라 새로운 상태노드로 진입한다.
+      // 의미는 exit 와 entry 액션이 실행된다는 의미다.
+      // 디폴트로는 외부 전이지만 {internal: false} 를 사용해 명시적으로 외부전이 할 수 있다.
+      // 형재 상태나 다른 노드로의 모든 전이는 외부 전이가 디폴트.
+      const exitfn = jest.fn();
+      const fn = jest.fn();
+
+      const wordMachine = createMachine({
+        id: 'word',
+        initial: 'left',
+        states: {
+          left: {},
+          right: {},
+          center: {},
+          justify: {}
+        },
+        exit: exitfn,
+        on: {
+          // external transitions
+          RIGHT_CLICK: { target: '.right', internal: false, actions: fn },
+        }
+      });
+      const m = interpret(wordMachine).start();
+
+      m.send('RIGHT_CLICK');
+
+      expect(m.state.value).toEqual('right');
+      expect(exitfn).toHaveBeenCalled();
+      expect(fn).toHaveBeenCalled();
     });
   });
 
@@ -818,7 +850,9 @@ describe('XState Study', () => {
     });
   });
 
-  describe('Context', () => { });
+  describe('Context', () => {
+    // https://xstate.js.org/docs/guides/context.html#context
+  });
 
   describe('invoking service', () => {
     // 하나의 머신에서 어플리케이션 전체를 커버하는 것은 너무 복잡해질 수 있다.
