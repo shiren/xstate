@@ -10,7 +10,7 @@
   "arrowParens": "always",
   "endOfLine": "lf",
   "bracketSpacing": true,
-  "jsxBracketSameLine": false,
+  "bracketSameLine": false,
   "requirePragma": false,
   "insertPragma": false,
   "proseWrap": "preserve",

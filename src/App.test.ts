@@ -5,6 +5,75 @@ import { waitFor } from 'xstate/lib/waitFor';
 // 애초에 예제자체를 테스트를 염두해두고 만들자. 목차로 describe를 구성해도 좋을듯
 
 describe('XState Study', () => {
+  describe('States', () => {
+    // 스테이트는 시스템에서의 특정시점의 추상적인 표현이다.
+    // 그냥 스테이트 머신이 가질수 있는 상태다.
+    //
+
+    it('apis', () => {
+      const machine = createMachine({
+        id: 'statesapi',
+        initial: 'green',
+        context: {
+          title: 'rgy',
+        },
+        states: {
+          green: {
+            meta: {
+              // 메타데이터
+              msg: 'green!',
+            },
+
+            on: {
+              TURN_YELLOW: {
+                target: 'yellow',
+                actions: [() => console.log('turn yellow')],
+              },
+              TURN_BLUE: 'blue',
+            },
+          },
+          yellow: {
+            tags: ['test1', 'test2'], // 스테이트에 태그를 추가할 수 있다.
+            meta: {
+              msg: 'yellow!',
+            },
+            on: {
+              TURN_GREEN: 'green',
+              TURN_BLUE: 'blue',
+            },
+          },
+          blue: {
+            meta: {
+              msg: 'blue!',
+            },
+
+            on: {
+              TURN_GREEN: 'green',
+              TURN_YELLOW: 'yellow',
+            },
+          },
+        },
+      });
+
+      const state = machine.transition('green', 'TURN_YELLOW');
+
+      expect(state.value).toBe('yellow');
+      expect(state.matches('yellow')).toEqual(true);
+      expect(state.context.title).toEqual('rgy');
+      expect(state.event).toEqual({ type: 'TURN_YELLOW' }); // 발생한 이벤트
+      expect(state.actions.length).toEqual(1); // 실행될 액션
+      expect(state.history?.value).toEqual('green'); // 이전 State 인스턴스
+      expect(state.meta['statesapi.yellow'].msg).toEqual('yellow!'); // 스태틱 메타정보
+      expect(state.done).toEqual(false); // 현재 스테이트가 파이날 스테이트인지 아닌지
+
+      expect(state.matches('yellow')).toEqual(true); // 현재 스테이트 값 비교
+      expect(state.nextEvents).toEqual(['TURN_GREEN', 'TURN_BLUE']); // 현재 전이로 발생한 이벤트 목록
+      expect(state.changed).toEqual(true); // 이전 스테이트와 다른지 여부
+      expect(state.hasTag('test1')).toEqual(true); // 태그 존재 여부
+      expect(state.can('TURN_GREEN')).toEqual(true); // 발생가능한 이벤트 존재 여부
+    });
+  });
+
   describe('기본 상태 전환', () => {
     let opt1 = {
       id: 'basic',
@@ -185,6 +254,122 @@ describe('XState Study', () => {
     });
   });
 
+  describe('Events', () => {
+    it('DOM 네이티브 이벤트를 그대로 이벤트로 활용할 수 있다', () => {
+      const mouseMachine = createMachine({
+        on: {
+          mousemove: {
+            actions: [
+              (context, event) => {
+                const { offsetX, offsetY } = event;
+                console.log({ offsetX, offsetY });
+              },
+            ],
+          },
+        },
+      });
+      const mouseService = interpret(mouseMachine).start();
+
+      window.addEventListener('mousemove', (event) => {
+        mouseService.send(event);
+      });
+    });
+
+    it.skip('null events, always - 1', () => {
+      // 널이벤트는 스테이트에 진입되면 즉시 실행된다.
+      // https://xstate.js.org/docs/guides/events.html#null-events
+      // cond 프로퍼티를 사용해서 조건에 따른 분기를 할 수 있는데 always가 동작하지 않는다.
+      //'': [
+      //    { target: 'adult', cond: isAdult },
+      //     { target: 'child', cond: isMinor }
+      //   ]
+      // //
+
+      const skipMachine = createMachine({
+        id: 'skip',
+        initial: 'one',
+        states: {
+          one: {
+            on: { CLICK: 'two' },
+          },
+          two: {
+            on: { always: 'three' },
+          },
+          three: {
+            type: 'final',
+          },
+        },
+      });
+
+      const { initialState } = skipMachine;
+      const nextState = skipMachine.transition(initialState, 'CLICK');
+
+      console.log(nextState.value);
+
+      expect(nextState.value).toEqual('three');
+    });
+  });
+
+  describe('transition', () => {
+    it('trainsition() method', () => {
+      const lightMachine = createMachine({
+        /* ... */
+      });
+
+      const greenState = lightMachine.initialState;
+
+      // 첫번째 인자는 현재의 State 인스턴스다
+      // 두번째 인자는 전이를 발생시킬 이벤트 객체다.
+      // 리턴값은 새로운 State 인스턴스다.
+      const yellowState = lightMachine.transition(greenState, { type: 'TIMER' });
+
+      // 전이 되는 조건은
+      // - 현재 스테이트가 해당 이벤트가 정의되어있어야하고
+      // - transition guard가 충족하고
+      // - 중첩된 노드의 경우 부모의 이벤트보다 현재 노드의 이벤트가 우선된다.(이말은 이벤트가 버블링된다는 의미)
+      //
+      // transition에 전달하는 이벤트 객체의 type과 매치되는 값을 이벤트 디스크립터라고한다.
+      // 그래서 DOM이벤트 객체를 그대로 사용할 수 있다. m.transition(.., domEvent)
+    });
+
+    it('internal transition', () => {
+      const fn = jest.fn();
+
+      const wordMachine = createMachine({
+        id: 'word',
+        initial: 'left',
+        states: {
+          left: {},
+          right: {},
+          center: {},
+          justify: {}
+        },
+        on: {
+          // internal transitions
+          LEFT_CLICK: '.left',
+          RIGHT_CLICK: { target: '.right', actions: fn }, // same as '.right'
+          CENTER_CLICK: { target: '.center', internal: true }, // same as '.center'
+          JUSTIFY_CLICK: { target: '.justify', internal: true } // same as '.justify'
+        }
+      });
+
+      // 인터널 트렌지션은 상태 노드를 벗어나지 않는다. 그래서 entry, exit의 액션이 실행되지 않는다.(부모것 포함)
+      // ".left" 같이 "." 을 붙이거나 {internal: true} 을 사용하면 인터널 트렌지션이 된다.
+      // target이 undefined인 경우에도 인터널 트랜지션이 된다.
+
+      const m = interpret(wordMachine).start();
+
+      m.send('RIGHT_CLICK');
+
+      expect(m.state.value).toEqual('right');
+      expect(fn).toHaveBeenCalled(); // 전이될때의 이벤트는 실행됨
+    });
+
+    it('external transition', () => {
+      // https://xstate.js.org/docs/guides/transitions.html#external-transitions
+    });
+  });
+
   describe('actions', () => {
     it('send()는 전이한후 다름 스텝(프레임)에서 이벤트를 발생시키는 액션을 만든다', () => {
       const lazyStubbornMachine = createMachine({
@@ -304,7 +489,7 @@ describe('XState Study', () => {
       expect(actual).toEqual(['idle', 'authorizing', 'authorized']);
     });
 
-    it('forwardTo()는 대상 서비스에 바로 동일한 이벤트를 전달하는 액션을 만든다.', () => {});
+    it('forwardTo()는 대상 서비스에 바로 동일한 이벤트를 전달하는 액션을 만든다.', () => { });
     it('escalate()는 부모 머신에 에러 이벤트를 발생해주는 액션을 만든다', (done) => {
       const childMachine = createMachine({
         entry: escalate({ message: '!!' }),
@@ -325,7 +510,7 @@ describe('XState Study', () => {
       interpret(parentMachine).start();
     });
 
-    it('log()는 선언적으로 현재 context와 상태, 이벤트와 관련된 로깅을 하는 액션을 만든다.', () => {});
+    it('log()는 선언적으로 현재 context와 상태, 이벤트와 관련된 로깅을 하는 액션을 만든다.', () => { });
     it('choose()는 일종의 액션을 실행하기위한 선언적인 조건문이다', () => {
       const maybeDoThese = choose([
         {
@@ -428,10 +613,218 @@ describe('XState Study', () => {
       expect(stateC.actions.map((i) => i.type)).toEqual(['increment']);
     });
   });
+  describe('guarded transitions', () => {
+    // 조건에 따라 특정 상태로 전이할 수 있다
+    it('조건에 따라 특정 상태로 전이할 수 있다', () => {
+      const searchValid = (context, event) => {
+        return context.canSearch && event.query && event.query.length > 0;
+      };
+
+      const searchMachine = createMachine(
+        {
+          id: 'search',
+          initial: 'idle',
+          context: {
+            canSearch: true
+          },
+          states: {
+            idle: {
+              on: {
+                SEARCH: [
+                  {
+                    target: 'searching',
+                    cond: 'searchValid' // or { type: 'searchValid' }
+                  },
+                  { target: '.invalid' }
+                ]
+              },
+              initial: 'normal',
+              states: {
+                normal: {},
+                invalid: {}
+              }
+            },
+            searching: {
+              entry: 'executeSearch'
+              // ...
+            },
+            searchError: {
+              // ...
+            }
+          }
+        },
+        {
+          guards: {
+            searchValid // optional, if the implementation doesn't change
+          }
+        });
+
+      const state = searchMachine.transition('idle', { type: 'SEARCH', query: 'foo' });
+
+      expect(state.value).toEqual('searching');
+    });
+    it('Custom gaurds', () => {
+      // 가드 함수에 cond 객체를 파라메터 처럼 전달할 수 있다.
+      // 가드 함수를 재사용할 수 있다.
+      const searchMachine = createMachine(
+        {
+          // ...
+          states: {
+            idle: {
+              on: {
+                SEARCH: {
+                  target: 'searching',
+                  // Custom guard object
+                  cond: {
+                    type: 'searchValid',
+                    minQueryLength: 3
+                  }
+                }
+              }
+            }
+            // ...
+          }
+        },
+        {
+          guards: {
+            searchValid: (context, event, { cond }) => {
+              // cond === { type: 'searchValid', minQueryLength: 3 }
+              return (
+                context.canSearch &&
+                event.query &&
+                event.query.length > cond.minQueryLength
+              );
+            }
+          }
+        }
+      );
+    });
+    it('multiple guards', () => {
+      const doorMachine = createMachine(
+        {
+          id: 'door',
+          initial: 'closed',
+          context: {
+            level: 'user',
+            alert: false // alert when intrusions happen
+          },
+          states: {
+            closed: {
+              initial: 'idle',
+              states: {
+                idle: {},
+                error: {}
+              },
+              on: {
+                SET_ADMIN: {
+                  actions: assign({ level: 'admin' })
+                },
+                SET_ALARM: {
+                  actions: assign({ alert: true })
+                },
+                OPEN: [
+                  // 위에 있을 수록 컨디션 조건이 더 우선적으로 처리된다.
+                  { target: 'opened', cond: 'isAdmin' },
+                  { target: '.error', cond: 'shouldAlert' }, // 차일드 스테이트가 자신의 스테이트 선택
+                  { target: '.idle' } // 디폴트 조건
+                ]
+              }
+            },
+            opened: {
+              on: {
+                CLOSE: { target: 'closed' }
+              }
+            }
+          }
+        },
+        {
+          guards: {
+            isAdmin: (context) => context.level === 'admin',
+            shouldAlert: (context) => context.alert === true
+          }
+        }
+      );
+
+      const doorService = interpret(doorMachine).start();
+
+      doorService.send('OPEN');
+
+      expect(doorService.state.value).toEqual({ 'closed': 'idle' });
+
+
+      doorService.send('SET_ALARM');
+      doorService.send('OPEN');
+
+      expect(doorService.state.value).toEqual({ 'closed': 'error' });
+
+      doorService.send('SET_ADMIN');
+      doorService.send('OPEN');
+
+      expect(doorService.state.value).toEqual('opened');
+    });
+
+    it('in state guard', () => {
+      // 현재 상태에 따라 판단할 수 있는 가드
+
+      const lightMachine = createMachine({
+        id: 'light',
+        initial: 'red',
+        states: {
+          green: {
+            on: {
+              TIMER: { target: 'yellow' }
+            }
+          },
+          yellow: {
+            on: {
+              TIMER: { target: 'red' }
+            }
+          },
+          red: {
+            initial: 'walk',
+            states: {
+              walk: {
+                /* ... */
+              },
+              wait: {
+                /* ... */
+              },
+              stop: {
+                /* ... */
+              }
+            },
+            on: {
+              TIMER: [
+                {
+                  target: 'green',
+                  in: '#light.red.stop' // 현재 stop 상태라면 전이 실행
+                }
+              ],
+              STOP: { target: '.stop' }
+            }
+          }
+        }
+      });
+
+      const lightService = interpret(lightMachine).start();
+
+      lightService.send('TIMER');
+
+      expect(lightService.state.value).not.toEqual('green');
+
+      lightService.send('STOP');
+      lightService.send('TIMER');
+      expect(lightService.state.value).toEqual('green');
+    });
+  });
+
+  describe('Context', () => { });
+
   describe('invoking service', () => {
     // 하나의 머신에서 어플리케이션 전체를 커버하는 것은 너무 복잡해질 수 있다.
     // 여러개의 머신으로 분할하고 서로 통신하게 만드는 것이 좋다.
     // 일종의 Actor model이다. 각 모델 인스턴스는 액터라고 보면된다.
+    // 사이드 이펙트를 실행하는 방법이다.
     // 이벤트를 전달하거나 받을 수 있다.
     // 부모 머신이 자식 머신을 인보크하는 형태로 만들어진다.
     // 머신 뿐만 아니라 Promise, Callback, Observable도 인보크할 수 있다. 즉 머신으로 사용할 수 있다.
