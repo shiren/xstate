@@ -1,4 +1,4 @@
-import { createMachine, send, interpret, StateValue, assign, sendParent } from 'xstate';
+import { createMachine, send, interpret, StateValue, assign, sendParent, EventObject } from 'xstate';
 import { choose, escalate, log, raise, respond, pure } from 'xstate/lib/actions';
 import { waitFor } from 'xstate/lib/waitFor';
 
@@ -278,9 +278,9 @@ describe('XState Study', () => {
     it('null events, always - 1', () => {
       // 널이벤트는 스테이트에 진입되면 즉시 실행된다.
       // https://xstate.js.org/docs/guides/events.html#null-events
-      // 향후 버전에서는 ''대신 'always'를 사용한다.
+      // 'always'를 사용한다.
       // cond 프로퍼티를 사용해서 조건에 따른 즉시 분기로 활용할 수 있다.
-      //'': [
+      // always: [
       //    { target: 'adult', cond: isAdult },
       //     { target: 'child', cond: isMinor }
       //   ]
@@ -294,7 +294,7 @@ describe('XState Study', () => {
             on: { CLICK: 'two' },
           },
           two: {
-            on: { '': 'three' },
+            always: 'three',
           },
           three: {
             type: 'final',
@@ -851,7 +851,129 @@ describe('XState Study', () => {
   });
 
   describe('Context', () => {
-    // https://xstate.js.org/docs/guides/context.html#context
+    // 유한한 상태가 유한 상태기계와 스테이트 차트로 잘 정의될 수 있지만 양을 나타내는 데이터 같이 잠재적으로 무한한 상태는 extended state라고 한다.
+    // extended state는 상태머신이 현실적인 어플리케이션에 더 유용하게 사용할 수 있게 만든다.
+    // xstate에서 이 extended state를 context라고 부른다.
+    // react hook으로 표현하면 어플리케이션 안에서 쓰이는 말그대로 어떤 상황에 특정 지점을 나타내는 상태와 상황에 따라 사용되는 데이터가 서로 구분되지 않고 useState로 사용되는데
+    // xstate에서는 상태와 데이터를 서로 명시적으로 구분했다 라고 생각하면 된다.
+
+
+    it('context example', () => {
+      type Context = {
+        amount: number;
+      }
+
+      // Amount를 정가하는 액션
+      // assign 함수를 이용하면 컨텍스트에 값을 바로 바인딩할 수 있다.
+      // 꼭 함수가 아니라 데이터를 바로 사용해도 된다.
+      const addWater = assign<Context>({
+        amount: (context) => context.amount + 1
+      });
+
+      // Guard to check if the glass is full
+      function glassIsFull(context: Context) {
+        return context.amount >= 10;
+      }
+
+      const glassMachine = createMachine<Context>(
+        {
+          id: 'glass',
+          // the initial context (extended state) of the statechart
+          context: {
+            amount: 0
+          },
+          initial: 'empty',
+          states: {
+            empty: {
+              on: {
+                FILL: {
+                  target: 'filling',
+                  actions: 'addWater'
+                }
+              }
+            },
+            filling: {
+              // Transient transition
+              always: {
+                target: 'full',
+                cond: 'glassIsFull'
+              },
+              on: {
+                FILL: {
+                  target: 'filling',
+                  actions: 'addWater'
+                }
+              }
+            },
+            full: {}
+          }
+        },
+        {
+          actions: { addWater },
+          guards: { glassIsFull }
+        }
+      );
+
+      const nextState = glassMachine.transition(glassMachine.initialState, { type: 'FILL' });
+
+      expect(nextState.value).toEqual('filling');
+      expect(nextState.context.amount).toEqual(1);
+    });
+
+    it('다양한 이니셜 컨텍스트에 대해서는 팩토리를 활용하면 좋다.', () => {
+      const createCounterMachine = (count: number, time: number) => {
+        return createMachine({
+          id: 'counter',
+          // values provided from function arguments
+          context: {
+            count,
+            time
+          }
+          // ...
+        });
+      };
+
+      const counterMachine = createCounterMachine(42, Date.now());
+    });
+
+    it('witContext()로 기존 머신의 컨텍스트를 변경할 수 있다.', () => {
+      const counterMachine = createMachine({
+        /* ... */
+      });
+
+      // retrieved dynamically
+      const someContext = { count: 42, time: Date.now() };
+
+      const dynamicCounterMachine = counterMachine.withContext(someContext);
+      // dynamicCounterMachine.initialState.context;
+      // => { count: 42, time: 1543687816981 }
+    })
+
+    it('assign() 함수는 context값을 업데이트하는 헬퍼', () => {
+      // assigner를 인자로 사용한다. 객체 or 함수
+      // assigner는 반드시 퓨어해야한다. 사이드이펙트가 없어야한다.
+
+      // 컨텍스트 값을 개별적으로 지정할 수 도 있고
+      const actions = assign<{ count: number; message: string }, EventObject & { value: number }>({
+        // increment the current count by the event value
+        count: (context, event) => context.count + event.value,
+
+        // assign static value to the message (no function needed)
+        message: 'Count changed'
+      })
+
+      // 통째로 정의할 수도 있다.
+      const actions2 = assign<{ count: number; message: string }, EventObject & { value: number }>((context, event) => {
+        return {
+          count: context.count + event.value,
+          message: 'Count changed'
+        }
+      })
+    });
+
+    it('action order', () => {
+      // https://xstate.js.org/docs/guides/context.html#action-order
+    });
   });
 
   describe('invoking service', () => {
