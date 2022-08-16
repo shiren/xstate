@@ -8,7 +8,6 @@ describe('XState Study', () => {
   describe('States', () => {
     // 스테이트는 시스템에서의 특정시점의 추상적인 표현이다.
     // 그냥 스테이트 머신이 가질수 있는 상태다.
-    //
 
     it('apis', () => {
       const machine = createMachine({
@@ -648,6 +647,7 @@ describe('XState Study', () => {
   describe('guarded transitions', () => {
     // 조건에 따라 특정 상태로 전이할 수 있다
     it('조건에 따라 특정 상태로 전이할 수 있다', () => {
+      // @ts-ignore
       const searchValid = (context, event) => {
         return context.canSearch && event.query && event.query.length > 0;
       };
@@ -722,8 +722,10 @@ describe('XState Study', () => {
             searchValid: (context, event, { cond }) => {
               // cond === { type: 'searchValid', minQueryLength: 3 }
               return (
+                // @ts-ignore
                 context.canSearch &&
                 event.query &&
+                // @ts-ignore
                 event.query.length > cond.minQueryLength
               );
             }
@@ -1318,6 +1320,7 @@ describe('XState Study', () => {
     });
     it.skip('서비스에 대한 참조', () => {
       /* eslint-disable */
+      /* @ts-ignore */
       const service = interpret(machine)
         .onTransition((state) => {
           state.children.notifier; // notifier 는 id
