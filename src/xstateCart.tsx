@@ -70,7 +70,8 @@ const cartMachine = createMachine<Context>({
     },
     done: {
       type: 'final',
-      entry: ['resetItem', 'complete'] // 여기서 앞에다가 리셋을 두면 실행이 안되고 뒤에다가 두면 빨리 실행이된다.
+      entry: ['complete'],
+      exit: ['resetItem']
     }
   }
 }, {
@@ -81,7 +82,9 @@ const cartMachine = createMachine<Context>({
     removeItem: assign({
       items: ({ items }, { name }) => items.filter(item => item !== name)
     }),
-    resetItem: assign<Context>({ items: [] })
+    resetItem: assign<Context>({ // 버전 4에서 어싸인은 다른 액션 보다 우선순위가 높다. 5부터는 그냥 순서대로 실행됨.
+      items: []
+    })
   },
   guards: {
     isFull: ({ items, maxItems }) => items.length >= maxItems,
@@ -103,7 +106,9 @@ const Cart: React.FC<{ items: string[], onRemoveItem: (name: string) => void }> 
 const XStateCart = () => {
   const [state, send] = useMachine(cartMachine, {
     actions: {
-      complete: (context) => console.log([...context.items])
+      complete: (context) => {
+        console.log(context.items.length)
+      }
     }
   });
 
