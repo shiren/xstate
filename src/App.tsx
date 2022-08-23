@@ -6,7 +6,7 @@ import Cart from './cart';
 function App() {
   return (
     <div className="App">
-      <XStateCart />
+      <Cart />
     </div>
   );
 }
