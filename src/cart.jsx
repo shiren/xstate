@@ -17,7 +17,13 @@ const stateMachine = createMachine(
           },
         },
       },
-      hold: {},
+      hold: {
+        on: {
+          ADD_ITEM: {
+            actions: ['addItem'],
+          },
+        },
+      },
     },
   },
   {
