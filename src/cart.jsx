@@ -1,7 +1,9 @@
 import { createMachine, assign } from 'xstate';
 import { useMachine } from '@xstate/react';
 
-const postPurchase = (cart: string[]): Promise<boolean> =>
+import { useEffect } from 'react';
+
+const postPurchase = (cart) =>
   new Promise((res) => {
     setTimeout(() => {
       res(true);
@@ -80,8 +82,15 @@ const stateMachine = createMachine(
 );
 
 const Cart = () => {
-  const [state, send] = useMachine(stateMachine);
+  const [state, send, service] = useMachine(stateMachine);
 
+  useEffect(() => {
+    const listener = () => console.log('done');
+
+    service.onDone(listener);
+
+    return () => service.off(listener);
+  }, []);
   return (
     <div>
       <p>{state.value}</p>
